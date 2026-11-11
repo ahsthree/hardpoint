@@ -25,6 +25,9 @@
 //   _hardPointMinPerTeam   min players per team; at least two teams must
 //                          reach it before the game starts         default 2
 //
+//   _hardPointSpawnRadius  players spawn at a random spot within this many units
+//                          of the active hardpoint (0 = normal spawns;
+//                          buildings are not checked)                     default 100
 //   _hardPointStarSpokes   shots in the marker star (360/N degrees apart)  default 3
 //   _hardPointStarInterval seconds between marker volleys                   default 1.0
 //
@@ -36,6 +39,7 @@
 #include <string>
 #include <sstream>
 #include <cmath>
+#include <cstdlib>
 
 struct Hardpoint {
     std::string name;
@@ -116,6 +120,7 @@ private:
     double nextFix    = 0;
 
     void enforceScores();
+    void spawnNearHardpoint(bz_GetPlayerSpawnPosEventData_V1 *d);
     void rotate();
     bool enoughPlayers();
     bool inside(const Hardpoint &hp, const float *p);
@@ -137,6 +142,8 @@ void HardpointPlugin::Init(const char *) {
         bz_setBZDBDouble("_hardPointScoreLimit", 250.0);
     if (!bz_BZDBItemExists("_hardPointMinPerTeam"))
         bz_setBZDBDouble("_hardPointMinPerTeam", 2.0);
+    if (!bz_BZDBItemExists("_hardPointSpawnRadius"))
+        bz_setBZDBDouble("_hardPointSpawnRadius", 100.0);
     if (!bz_BZDBItemExists("_hardPointStarSpokes"))
         bz_setBZDBDouble("_hardPointStarSpokes", 3.0);
     if (!bz_BZDBItemExists("_hardPointStarInterval"))
@@ -144,6 +151,7 @@ void HardpointPlugin::Init(const char *) {
 
     Register(bz_eTickEvent);
     Register(bz_ePlayerDieEvent);
+    Register(bz_eGetPlayerSpawnPosEvent);
 }
 
 void HardpointPlugin::Cleanup() {
@@ -227,6 +235,40 @@ int HardpointPlugin::evaluateZone(bool &contested) {
     return contested ? -1 : holder;
 }
 
+// Spawn players at a random spot within _hardPointSpawnRadius of the active
+// hardpoint (uniform over the disc), facing the hardpoint. Spots outside the
+// world are rejected; if none is found after a number of tries the player gets
+// a normal spawn. Spots are NOT checked against buildings.
+void HardpointPlugin::spawnNearHardpoint(bz_GetPlayerSpawnPosEventData_V1 *d) {
+    const double R = bz_getBZDBDouble("_hardPointSpawnRadius");
+    if (!d || R <= 0 || !started || active < 0) return;
+
+    const Hardpoint &hp = g_points[active];
+    const float tankR = (float)bz_getBZDBDouble("_tankRadius");
+    const float world = (float)bz_getBZDBDouble("_worldSize") * 0.5f - tankR;
+    const float pi    = 3.14159265f;
+
+    for (int tries = 0; tries < 40; tries++) {
+        float a = 2.0f * pi * ((float)rand() / (float)RAND_MAX);
+        float r = (float)R * sqrtf((float)rand() / (float)RAND_MAX);
+        float p[3] = { hp.pos[0] + r * cosf(a),
+                       hp.pos[1] + r * sinf(a),
+                       hp.pos[2] };
+
+        if (fabsf(p[0]) > world || fabsf(p[1]) > world) continue;
+
+        // NOTE: spots are not checked against buildings (this bzfsAPI.h has no
+        // map-object collision call), so keep the radius clear of solid objects.
+
+        d->pos[0] = p[0];
+        d->pos[1] = p[1];
+        d->pos[2] = p[2];
+        d->rot    = atan2f(hp.pos[1] - p[1], hp.pos[0] - p[0]);   // face the hardpoint
+        d->handled = true;
+        return;
+    }
+}
+
 // Marker star: N shots (default 3, i.e. 120 degrees apart) flying level toward
 // the center from 100 units out, 60 units above the hardpoint. They are fired
 // in the rogue team's color (yellow), which no team in play uses, so they can't
@@ -260,6 +302,10 @@ void HardpointPlugin::Event(bz_EventData *eventData) {
     if (eventData->eventType == bz_ePlayerDieEvent) {
         enforceScores();
         fixScores = true;
+        return;
+    }
+    if (eventData->eventType == bz_eGetPlayerSpawnPosEvent) {
+        spawnNearHardpoint((bz_GetPlayerSpawnPosEventData_V1 *)eventData);
         return;
     }
     if (eventData->eventType != bz_eTickEvent)
