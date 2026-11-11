@@ -22,6 +22,11 @@ the zone moves to the next location on a timer.
 - The game waits until **at least two teams each have two players** (2v2,
   2v2v2 or 2v2v2v2). If it drops below that, it pauses and starts over from the
   first hardpoint when enough players are back.
+- While a game is running, players **spawn near the active hardpoint**: at a
+  random spot within `_hardPointSpawnRadius` units (default 100) of its
+  center, facing it. Spawn spots are not checked against buildings, so keep the
+  area around each hardpoint open or use a smaller radius. This keeps the fight at the hardpoint. Set the variable to
+  `0` for normal spawns.
 - Players find the active hardpoint three ways: the chat announcement, the
   visible marker in the map, and a star of **yellow (rogue-colored) bolts**
   that fly in toward it from above. The bolts also show as dots on the radar.
@@ -54,6 +59,7 @@ has a default, so none are required.
 | `_hardPointIdleTime` | `0` | Move on if no team has held the zone for this many seconds. `0` means never move on idle. |
 | `_hardPointScoreLimit` | `250` | Team score that wins the game. |
 | `_hardPointMinPerTeam` | `2` | Minimum players per team. At least two teams must reach it before the game starts. |
+| `_hardPointSpawnRadius` | `100` | Players spawn within this many units of the active hardpoint. `0` turns it off and uses normal spawns. |
 | `_hardPointStarSpokes` | `3` | Number of bolts in the marker star, spaced evenly (3 is 120 degrees apart). |
 | `_hardPointStarInterval` | `1.0` | Seconds between marker volleys. |
 
@@ -62,6 +68,9 @@ Tips:
 - With `_hardPointIdleTime` at `0`, the hardpoint stays put until a team holds
   it for the full hold time. If you want the game to keep moving on a map where
   nobody can reach a spot, set it to something like `90`.
+- Spawn-near-hardpoint works best with hardpoints at ground level. Spawns are
+  placed at the hardpoint's `z`, so a hardpoint on a raised platform with a
+  large spawn radius can drop players off the edge. Use a smaller radius there.
 - If the yellow bolts are too busy or confusing, raise `_hardPointStarInterval`
   or lower `_hardPointStarSpokes`.
 
