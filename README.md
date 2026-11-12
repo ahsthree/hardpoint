@@ -24,8 +24,9 @@ the zone moves to the next location on a timer.
   first hardpoint when enough players are back.
 - While a game is running, players **spawn near the active hardpoint**: at a
   random spot within `_hardPointSpawnRadius` units (default 100) of its
-  center, facing it. Spawn spots are not checked against buildings, so keep the
-  area around each hardpoint open or use a smaller radius. This keeps the fight at the hardpoint. Set the variable to
+  center, facing it. Spawn spots always come from the server's own safe-spawn
+  logic or from spots the mapmaker placed, so players don't spawn inside
+  buildings. This keeps the fight at the hardpoint. Set the variable to
   `0` for normal spawns.
 - Players find the active hardpoint three ways: the chat announcement, the
   visible marker in the map, and a star of **yellow (rogue-colored) bolts**
@@ -60,6 +61,7 @@ has a default, so none are required.
 | `_hardPointScoreLimit` | `250` | Team score that wins the game. |
 | `_hardPointMinPerTeam` | `2` | Minimum players per team. At least two teams must reach it before the game starts. |
 | `_hardPointSpawnRadius` | `100` | Players spawn within this many units of the active hardpoint. `0` turns it off and uses normal spawns. |
+| `_hardPointSpawnTries` | `60` | How many server-checked spawn spots to try when looking for one near the hardpoint. Raise it on large maps. |
 | `_hardPointStarSpokes` | `3` | Number of bolts in the marker star, spaced evenly (3 is 120 degrees apart). |
 | `_hardPointStarInterval` | `1.0` | Seconds between marker volleys. |
 
@@ -68,9 +70,9 @@ Tips:
 - With `_hardPointIdleTime` at `0`, the hardpoint stays put until a team holds
   it for the full hold time. If you want the game to keep moving on a map where
   nobody can reach a spot, set it to something like `90`.
-- Spawn-near-hardpoint works best with hardpoints at ground level. Spawns are
-  placed at the hardpoint's `z`, so a hardpoint on a raised platform with a
-  large spawn radius can drop players off the edge. Use a smaller radius there.
+- Automatic spawning picks from the server's normal spawn spots. On a map with
+  team bases and base spawns, players may keep spawning at their bases; use
+  `spawn` lines in that case.
 - If the yellow bolts are too busy or confusing, raise `_hardPointStarInterval`
   or lower `_hardPointStarSpokes`.
 
@@ -94,12 +96,44 @@ end
 | `pos` | Position of the zone. `z` is the **bottom** of the zone. |
 | `size` | Same as a box: **half-extents** in x and y, and the **height** in z. `size 30 30 30` is a zone 60 wide, 60 long and 30 tall. |
 | `rot` | Optional. Rotation in degrees, counterclockwise, around the vertical axis. `rotation` also works. |
+| `spawn` | Optional, repeatable. `spawn x y [z]` is a safe spawn spot you chose for this hardpoint. If a hardpoint has any, players spawn at one of them (random pick) facing the hardpoint. `z` defaults to the hardpoint's `z`. |
 
 The zone is a box in space: tanks must be between `z` and `z + size z`. Make it
 tall enough to cover jumps if your map allows them.
 
 **The `hardpoint` block is invisible by itself.** It only tells the server where
 the zone is. Players need something in the map to see it.
+
+### Spawn spots
+
+While a game is running, players spawn near the active hardpoint. There are two
+ways it finds a spot, and both avoid spawning inside buildings:
+
+1. **Spots you place.** Give a hardpoint `spawn` lines in open areas around it.
+   Players then spawn at one of them, chosen at random, facing the hardpoint.
+   This is the most reliable option.
+
+   ```
+   hardpoint
+     name red
+     pos 0 0 0
+     size 30 30 30
+     spawn 70 0
+     spawn -70 0
+     spawn 0 70
+     spawn 0 -70
+   end
+   ```
+
+2. **Automatic.** With no `spawn` lines, the plugin asks the server for its
+   own spawn spots, which it already checks against buildings, the ground,
+   enemies and dangerous flags, and keeps the first one within
+   `_hardPointSpawnRadius` of the hardpoint. It tries up to
+   `_hardPointSpawnTries` times. If none is close enough, the player gets the
+   server's normal spawn. On a large map with a small radius, raise the tries
+   or add `spawn` lines.
+
+`_hardPointSpawnRadius 0` turns near-hardpoint spawning off.
 
 ## Showing players where the hardpoint is
 
