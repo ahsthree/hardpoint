@@ -14,6 +14,8 @@
 //     pos 0 0 0
 //     size 30 30 30      # half-extents in x/y, height in z (same as a box)
 //     rot 45             # optional, degrees counterclockwise (also: rotation)
+//     spawn 80 0         # optional, repeatable: a mapmaker-chosen safe spawn spot
+//     spawn 0 80 0       #   (x y [z]; z defaults to the hardpoint's z)
 //   end
 //
 // BZDB variables:
@@ -26,8 +28,9 @@
 //                          reach it before the game starts         default 2
 //
 //   _hardPointSpawnRadius  players spawn at a random spot within this many units
-//                          of the active hardpoint (0 = normal spawns;
-//                          buildings are not checked)                     default 100
+//                          of the active hardpoint (0 = normal spawns)    default 100
+//   _hardPointSpawnTries   how many server-checked spawn spots to try when
+//                          looking for one near the hardpoint            default 60
 //   _hardPointStarSpokes   shots in the marker star (360/N degrees apart)  default 3
 //   _hardPointStarInterval seconds between marker volleys                   default 1.0
 //
@@ -46,6 +49,7 @@ struct Hardpoint {
     float pos[3]  = {0, 0, 0};
     float size[3] = {10, 10, 10};   // half-extents x/y, height z (box convention)
     float cosR = 1.0f, sinR = 0.0f; // rotation about z, set from `rot`
+    std::vector<std::vector<float> > spawns;   // optional {x, y, z or NAN}
 };
 
 static std::vector<Hardpoint> g_points;
@@ -68,6 +72,14 @@ public:
             }
             else if (key == "pos")  ss >> hp.pos[0]  >> hp.pos[1]  >> hp.pos[2];
             else if (key == "size") ss >> hp.size[0] >> hp.size[1] >> hp.size[2];
+            else if (key == "spawn") {
+                float sx = 0, sy = 0, sz = NAN;
+                ss >> sx >> sy;
+                if (!(ss >> sz)) sz = NAN;          // z is optional
+                std::vector<float> v;
+                v.push_back(sx); v.push_back(sy); v.push_back(sz);
+                hp.spawns.push_back(v);
+            }
             else if (key == "rot" || key == "rotation") {
                 float deg = 0;
                 ss >> deg;
@@ -144,6 +156,8 @@ void HardpointPlugin::Init(const char *) {
         bz_setBZDBDouble("_hardPointMinPerTeam", 2.0);
     if (!bz_BZDBItemExists("_hardPointSpawnRadius"))
         bz_setBZDBDouble("_hardPointSpawnRadius", 100.0);
+    if (!bz_BZDBItemExists("_hardPointSpawnTries"))
+        bz_setBZDBDouble("_hardPointSpawnTries", 60.0);
     if (!bz_BZDBItemExists("_hardPointStarSpokes"))
         bz_setBZDBDouble("_hardPointStarSpokes", 3.0);
     if (!bz_BZDBItemExists("_hardPointStarInterval"))
@@ -235,38 +249,49 @@ int HardpointPlugin::evaluateZone(bool &contested) {
     return contested ? -1 : holder;
 }
 
-// Spawn players at a random spot within _hardPointSpawnRadius of the active
-// hardpoint (uniform over the disc), facing the hardpoint. Spots outside the
-// world are rejected; if none is found after a number of tries the player gets
-// a normal spawn. Spots are NOT checked against buildings.
+// Spawn players near the active hardpoint, facing it.
+//  1. If the hardpoint has `spawn` lines in the map, use one of those (the
+//     mapmaker chose them, so they are clear).
+//  2. Otherwise ask the server for its own spawn spots with bz_getStandardSpawn
+//     (it checks buildings, ground, enemies and dangerous flags) and keep the
+//     first one within _hardPointSpawnRadius of the hardpoint, trying up to
+//     _hardPointSpawnTries times.
+//  3. If none is close enough, leave the server's normal spawn alone.
 void HardpointPlugin::spawnNearHardpoint(bz_GetPlayerSpawnPosEventData_V1 *d) {
     const double R = bz_getBZDBDouble("_hardPointSpawnRadius");
     if (!d || R <= 0 || !started || active < 0) return;
 
     const Hardpoint &hp = g_points[active];
-    const float tankR = (float)bz_getBZDBDouble("_tankRadius");
-    const float world = (float)bz_getBZDBDouble("_worldSize") * 0.5f - tankR;
-    const float pi    = 3.14159265f;
 
-    for (int tries = 0; tries < 40; tries++) {
-        float a = 2.0f * pi * ((float)rand() / (float)RAND_MAX);
-        float r = (float)R * sqrtf((float)rand() / (float)RAND_MAX);
-        float p[3] = { hp.pos[0] + r * cosf(a),
-                       hp.pos[1] + r * sinf(a),
-                       hp.pos[2] };
+    if (!hp.spawns.empty()) {
+        const std::vector<float> &sp = hp.spawns[rand() % hp.spawns.size()];
+        d->pos[0] = sp[0];
+        d->pos[1] = sp[1];
+        d->pos[2] = std::isnan(sp[2]) ? hp.pos[2] : sp[2];
+        d->rot    = atan2f(hp.pos[1] - sp[1], hp.pos[0] - sp[0]);
+        d->handled = true;
+        return;
+    }
 
-        if (fabsf(p[0]) > world || fabsf(p[1]) > world) continue;
+    const int maxTries = (int)bz_getBZDBDouble("_hardPointSpawnTries");
+    const double R2 = R * R;
+    for (int i = 0; i < maxTries; i++) {
+        float p[3] = {0, 0, 0};
+        float rot = 0;
+        if (!bz_getStandardSpawn(d->playerID, p, &rot)) continue;
 
-        // NOTE: spots are not checked against buildings (this bzfsAPI.h has no
-        // map-object collision call), so keep the radius clear of solid objects.
+        float dx = p[0] - hp.pos[0];
+        float dy = p[1] - hp.pos[1];
+        if (dx * dx + dy * dy > R2) continue;
 
         d->pos[0] = p[0];
         d->pos[1] = p[1];
         d->pos[2] = p[2];
-        d->rot    = atan2f(hp.pos[1] - p[1], hp.pos[0] - p[0]);   // face the hardpoint
+        d->rot    = atan2f(-dy, -dx);              // face the hardpoint
         d->handled = true;
         return;
     }
+    // nothing near enough: the server's default spawn stands
 }
 
 // Marker star: N shots (default 3, i.e. 120 degrees apart) flying level toward
