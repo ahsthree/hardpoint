@@ -27,6 +27,8 @@
 //   _hardPointMinPerTeam   min players per team; at least two teams must
 //                          reach it before the game starts         default 2
 //
+//   _hardPointResetDelay   seconds after the last player leaves before team
+//                          scores reset to 0 (0 = never reset)            default 30
 //   _hardPointSpawnRadius  players spawn at a random spot within this many units
 //                          of the active hardpoint (0 = normal spawns)    default 100
 //   _hardPointSpawnTries   how many server-checked spawn spots to try when
@@ -130,6 +132,9 @@ private:
     int    hpScore[5] = {0, 0, 0, 0, 0};   // the only source of team score
     bool   fixScores  = false;             // a death happened: re-assert next tick
     double nextFix    = 0;
+    double emptySince = -1;      // when the server became empty, -1 = not empty
+    double nextEmptyCheck = 0;
+    bool   scoresReset = false;  // already reset for this empty period
 
     void enforceScores();
     void spawnNearHardpoint(bz_GetPlayerSpawnPosEventData_V1 *d);
@@ -154,6 +159,8 @@ void HardpointPlugin::Init(const char *) {
         bz_setBZDBDouble("_hardPointScoreLimit", 250.0);
     if (!bz_BZDBItemExists("_hardPointMinPerTeam"))
         bz_setBZDBDouble("_hardPointMinPerTeam", 2.0);
+    if (!bz_BZDBItemExists("_hardPointResetDelay"))
+        bz_setBZDBDouble("_hardPointResetDelay", 30.0);
     if (!bz_BZDBItemExists("_hardPointSpawnRadius"))
         bz_setBZDBDouble("_hardPointSpawnRadius", 100.0);
     if (!bz_BZDBItemExists("_hardPointSpawnTries"))
@@ -337,6 +344,28 @@ void HardpointPlugin::Event(bz_EventData *eventData) {
         return;
 
     double now = bz_getCurrentTime();
+
+    // ---- reset team scores once the server has been empty for a while
+    if (now >= nextEmptyCheck) {
+        nextEmptyCheck = now + 1.0;
+        bz_APIIntList *pl = bz_getPlayerIndexList();
+        int n = pl ? (int)pl->size() : 0;
+        if (pl) bz_deleteIntList(pl);
+
+        if (n > 0) {
+            emptySince  = -1;
+            scoresReset = false;
+        } else {
+            if (emptySince < 0) emptySince = now;
+            const double delay = bz_getBZDBDouble("_hardPointResetDelay");
+            if (delay > 0 && !scoresReset && now - emptySince >= delay) {
+                for (int i = 0; i < 5; i++) hpScore[i] = 0;
+                resetGame();
+                enforceScores();
+                scoresReset = true;
+            }
+        }
+    }
 
     if (fixScores || now >= nextFix) {
         enforceScores();
