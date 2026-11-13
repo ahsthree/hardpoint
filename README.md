@@ -19,6 +19,8 @@ the zone moves to the next location on a timer.
 - **Team score comes only from the hardpoint.** Kills, team kills and flag
   captures do not change it. Individual player scores still count kills as
   usual.
+- When the last player leaves, team scores reset to 0 after `_hardPointResetDelay`
+  seconds (default 30). If someone joins before then, nothing is reset.
 - The game waits until **at least two teams each have two players** (2v2,
   2v2v2 or 2v2v2v2). If it drops below that, it pauses and starts over from the
   first hardpoint when enough players are back.
@@ -60,6 +62,7 @@ has a default, so none are required.
 | `_hardPointIdleTime` | `0` | Move on if no team has held the zone for this many seconds. `0` means never move on idle. |
 | `_hardPointScoreLimit` | `250` | Team score that wins the game. |
 | `_hardPointMinPerTeam` | `2` | Minimum players per team. At least two teams must reach it before the game starts. |
+| `_hardPointResetDelay` | `30` | Seconds after the last player leaves before team scores reset to 0. `0` means never reset. |
 | `_hardPointSpawnRadius` | `100` | Players spawn within this many units of the active hardpoint. `0` turns it off and uses normal spawns. |
 | `_hardPointSpawnTries` | `60` | How many server-checked spawn spots to try when looking for one near the hardpoint. Raise it on large maps. |
 | `_hardPointStarSpokes` | `3` | Number of bolts in the marker star, spaced evenly (3 is 120 degrees apart). |
